@@ -4077,6 +4077,8 @@ function updateTraffic() {
     const showDesktopHints = !hasTouchControls || window.matchMedia('(any-pointer: fine)').matches;
     const movementDirection = new THREE.Vector2(0, 0);
     const lookingDirection = new THREE.Vector2(0, 0);
+    const touchLookSpeed = 3; // Radians per second at full stick.
+    const touchLookDeadZone = 0.08;
     let movementTouchId = null;
     let lookingTouchId = null;
 
@@ -4379,10 +4381,13 @@ function updatePlayer() {
   camera.position.copy(resolvedPosition);
   camera.position.y = playerHeight;
 
-  if (lookingDirection.lengthSq() > 0) {
-    const lookSpeed = 0.1;
-    yaw -= lookingDirection.x * lookSpeed;
-    pitch += lookingDirection.y * lookSpeed;
+  const lookAmount = lookingDirection.length();
+  if (lookAmount > touchLookDeadZone) {
+    const strength = (lookAmount - touchLookDeadZone) / (1 - touchLookDeadZone);
+    const response = strength * (0.4 + 0.6 * strength);
+    const turn = touchLookSpeed * simulationStep * response / lookAmount;
+    yaw -= lookingDirection.x * turn;
+    pitch += lookingDirection.y * turn;
     pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
     camera.rotation.y = yaw;
     camera.rotation.x = pitch;
