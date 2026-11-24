@@ -1158,19 +1158,43 @@ function findSafeSpawnPosition(center, bounds) {
 }
 
 async function fetchMapData(x, z) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch("./maps/" + sectionKey(x, z) + ".json", { signal: controller.signal });
-    if (!response.ok) throw new Error("Map snapshot returned HTTP " + response.status);
-    const data = await response.json();
-    if (!Array.isArray(data?.elements) || data.elements.length === 0) {
-      throw new Error("Invalid map snapshot");
+  const url = "./maps/" + sectionKey(x, z) + ".json";
+  const deadline = performance.now() + 30_000;
+  let lastError;
+
+  for (const retryDelay of [0, 1000, 2000]) {
+    if (deadline - performance.now() <= retryDelay) break;
+    if (retryDelay) await new Promise(resolve => setTimeout(resolve, retryDelay));
+
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) break;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(10_000, remaining));
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        cache: retryDelay ? "reload" : "default"
+      });
+      if (!response.ok) {
+        const status = response.status;
+        lastError = new Error("Map snapshot returned HTTP " + status);
+        if (status === 408 || status === 429 || status >= 500) continue;
+        throw lastError;
+      }
+      const data = await response.json();
+      if (!Array.isArray(data?.elements) || data.elements.length === 0) {
+        throw new Error("Invalid map snapshot");
+      }
+      return data;
+    } catch (error) {
+      if (controller.signal.aborted) lastError = new Error("Map snapshot request timed out", { cause: error });
+      else if (error instanceof TypeError) lastError = error;
+      else throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    return data;
-  } finally {
-    clearTimeout(timeout);
   }
+  throw lastError ?? new Error("Map snapshot load timed out");
 }
 
 function generateMapData(x, z, { minLat, maxLat, minLon, maxLon }) {
