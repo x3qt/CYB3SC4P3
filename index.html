@@ -701,6 +701,7 @@
     const skimmerPatrolSpeed = 30;
     const skimmerPursuitSpeed = 48;
     const skimmerFollowDistance = 40;
+    const extractionSkimmerCount = 3;
     const patrolScanRadius = 138;
     const patrolAlertRadius = 180;
     const patrolRadioRadius = 145;
@@ -721,6 +722,7 @@
     const enforcerSightInterval = 0.2;
     const enforcerTrailTime = 6;
     const enforcerSearchTime = 4;
+    const extractionSteeringInterval = 0.15;
     const pedestrianShootingInterval = 60;
     const pedestrianShootingRange = 120;
     const wallHeight = 300;
@@ -821,6 +823,7 @@ const arenaRoute = [
   { x: 0, z: 1 }, { x: 1, z: 1 }, { x: 1, z: 0 }, { x: 1, z: -1 }
 ];
 const vaultRange = 100;
+const keyPickupRadius = 5;
 const vaultBeaconColor = 0xff914c;
 const vaultReadyColor = 0xffed80;
 const escapeRadius = 15;
@@ -841,8 +844,10 @@ const scanSectors = document.getElementById('scanSectors');
 let scanPassages;
 let keysCollected = 0;
 let dataVault = null;
+let droppedKey = null;
 let extractionSite;
 let escapeBeam = null;
+let extractionSweepTimer = 0;
 let escaped = false;
 let extractionSequence = null;
 let moonHeat = 0;
@@ -859,7 +864,8 @@ const interceptionHints = [
   "Work the curb. Traffic hits cost Link Integrity.",
   "Roads gone quiet? Replacement transports enter when supply runs low.",
   "Open Scan for the active vault. Follow the teal dashes through open ICE.",
-  "Full buffer. Move closer to the amber vault and fire. The crack spends the whole buffer.",
+  "Full buffer. Move closer to the amber vault and fire. The crack spends the whole buffer and drops a key.",
+  "Pick up the dropped encryption key to open the next sector. Scan marks the pickup.",
   "Every key opens a sector and raises Supervisor Heat. Your shots pass through decrypted wireframes.",
   "Hack lets your shots pierce one solid building. Vaults still block fire. Hack drains 2% per second, or 4% on the move.",
   "Hear the violet sweep ring? You’re inside the cone. Get out or get under cover.",
@@ -867,7 +873,7 @@ const interceptionHints = [
   "Break sight, then turn again. Enforcers check where they last saw you and the exits nearby.",
   "Breaches, firefights, and Hack draw enforcers. Opening a sector won’t shake their trace.",
   "Hear the Supervisor’s lock alarm? Clear the red ring before the beam hits.",
-  "Nine keys light the extraction beam. Run for it. The Supervisor strikes faster on the way out."
+  "Nine keys light the extraction beam. Every enforcer and skimmer comes for you. Keep moving."
 ];
 const openingBackdrop = document.getElementById('openingBackdrop');
 const introDiv = document.getElementById('intro');
@@ -1832,7 +1838,7 @@ function patrolRoute(section) {
   ];
 }
 
-function spawnSurveillancePatrol(route) {
+function spawnSurveillancePatrol(route, startIndex = 0) {
   const airframe = new THREE.MeshPhongMaterial({ color: patrolSweepColor, emissive: patrolSweepColor, emissiveIntensity: 0.85 });
   const patrol = new THREE.Mesh(airplaneGeometry, airframe);
   const airframeScale = 1.6;
@@ -1853,7 +1859,7 @@ function spawnSurveillancePatrol(route) {
   );
   patrol.add(cone, scanBand);
 
-  patrol.position.copy(route[0]);
+  patrol.position.copy(route[startIndex]);
   patrol.userData = {
     type: 'airplane',
     surveillance: {
@@ -1863,7 +1869,7 @@ function spawnSurveillancePatrol(route) {
       sweepPhase: 0,
       inCone: false,
       route,
-      waypoint: 1,
+      waypoint: (startIndex + 1) % route.length,
       timeUntilScan: patrolScanInterval,
       cueCooldown: 0,
       exposure: 0,
@@ -1877,6 +1883,7 @@ function spawnSurveillancePatrol(route) {
   };
   airplanes.push(patrol);
   scene.add(patrol);
+  return patrol;
 }
 
 function surveillanceLineOfSight(origin, target) {
@@ -1937,17 +1944,18 @@ function findEnforcerSearchExit(enforcer, anchor) {
 
 function updateEnforcerPursuit(enforcer, step) {
   const data = enforcer.userData;
+  if (escapeBeam) reportEnforcerContact(enforcer, camera.position);
   data.sightTimer -= step;
   if (data.sightTimer <= 0) {
     const range = data.pursuit ? pedestrianAlertDistance : enforcerSpotDistance;
     const seeing = enforcerCanSee(enforcer, camera.position, range);
-    if (seeing) reportEnforcerContact(enforcer, camera.position);
+    if (seeing && !escapeBeam) reportEnforcerContact(enforcer, camera.position);
     data.sightTimer = enforcerSightInterval;
     if (data.pursuit) data.pursuit.seeing = seeing;
   }
 
   const pursuit = data.pursuit;
-  if (!pursuit || pursuit.seeing) return;
+  if (!pursuit || pursuit.seeing || escapeBeam) return;
   if (!pursuit.searchPoint) {
     pursuit.trailTime -= step;
     const dx = pursuit.lastKnown.x - enforcer.position.x;
@@ -1990,8 +1998,9 @@ function scanFromPatrol(airplane, patrol) {
   const position = airplane.position;
   const inCone = Math.hypot(player.x - position.x, player.z - position.z) <=
     patrolScanRadius * (position.y - player.y) / patrolAltitude;
-  const visible = inCone && surveillanceLineOfSight(position, player);
   patrol.inCone = inCone;
+  if (escapeBeam) return;
+  const visible = inCone && surveillanceLineOfSight(position, player);
   patrol.cueCooldown = Math.max(0, patrol.cueCooldown - patrolScanInterval);
   if (inCone && patrol.cueCooldown === 0) {
     playSkimmerSweep();
@@ -2064,26 +2073,53 @@ function playSkimmerSweep() {
 }
 
 function updateSkimmerSweep(elapsed) {
-  const patrol = airplanes[0]?.userData.surveillance;
-  if (!patrol) return;
-  const { cone, scanBand, airframeScale } = patrol;
-  scanBand.visible = cone.visible;
-  if (!cone.visible) return;
-  patrol.sweepPhase = (patrol.sweepPhase + elapsed * (patrol.tracing ? 0.95 : 0.65)) % 1;
-  const phase = patrol.sweepPhase;
-  const pulse = Math.sin(Math.PI * phase);
-  const radius = patrolScanRadius * phase / airframeScale;
-  cone.material.opacity = (patrol.tracing ? 0.18 : 0.085) + 0.065 * pulse;
-  scanBand.position.y = -patrolAltitude * phase / airframeScale;
-  scanBand.scale.set(radius, 2.2 / airframeScale, radius);
-  scanBand.material.opacity = pulse * (patrol.tracing ? 0.6 : 0.4);
+  for (const airplane of airplanes) {
+    const patrol = airplane.userData.surveillance;
+    if (!patrol) continue;
+    const { cone, scanBand, airframeScale } = patrol;
+    scanBand.visible = cone.visible;
+    if (!cone.visible) continue;
+    patrol.sweepPhase = (patrol.sweepPhase + elapsed * (patrol.tracing ? 0.95 : 0.65)) % 1;
+    const phase = patrol.sweepPhase;
+    const pulse = Math.sin(Math.PI * phase);
+    const radius = patrolScanRadius * phase / airframeScale;
+    cone.material.opacity = (patrol.tracing ? 0.18 : 0.085) + 0.065 * pulse;
+    scanBand.position.y = -patrolAltitude * phase / airframeScale;
+    scanBand.scale.set(radius, 2.2 / airframeScale, radius);
+    scanBand.material.opacity = pulse * (patrol.tracing ? 0.6 : 0.4);
+  }
+}
+
+function startExtractionPursuit() {
+  for (const enforcer of pedestrians) reportEnforcerContact(enforcer, camera.position);
+  huntingPedestrians = pedestrians.length;
+
+  const route = patrolRoute(activeSection);
+  const ingress = route.map((point, index) => ({ index, distance: point.distanceToSquared(camera.position) }))
+    .sort((a, b) => a.distance - b.distance);
+  const skimmers = airplanes.filter(airplane => airplane.userData.surveillance);
+  for (let index = 0; skimmers.length < extractionSkimmerCount; index++) {
+    skimmers.push(spawnSurveillancePatrol(route, ingress[index].index));
+  }
+  skimmers.forEach((airplane, index) => {
+    const patrol = airplane.userData.surveillance;
+    patrol.tracing = true;
+    patrol.hiddenTime = 0;
+    patrol.reacquireTime = 0;
+    patrol.lastKnown.copy(camera.position);
+    patrol.extractionStandoff = skimmerFollowDistance + index * 16;
+    patrol.sweepPhase = index / skimmers.length;
+    patrol.cone.visible = true;
+    patrol.cone.material.color.setHex(patrolTraceColor);
+    patrol.scanBand.material.color.setHex(patrolTraceColor);
+  });
 }
 
 function updateSurveillancePatrol(airplane, step) {
   const patrol = airplane.userData.surveillance;
   const position = airplane.position;
   const searching = !patrol.tracing && patrol.reacquireTime > 0;
-  let target = patrol.tracing ? patrol.lastKnown : patrol.route[patrol.waypoint];
+  let target = escapeBeam ? camera.position : patrol.tracing ? patrol.lastKnown : patrol.route[patrol.waypoint];
   if (searching) {
     const angle = patrol.searchAngle + (patrolReacquireDelay - patrol.reacquireTime) * 0.5;
     target = patrol.lastKnown.clone();
@@ -2092,7 +2128,7 @@ function updateSurveillancePatrol(airplane, step) {
   }
   const direction = new THREE.Vector3(target.x - position.x, 0, target.z - position.z);
   const distance = direction.length();
-  const standoff = patrol.tracing ? skimmerFollowDistance : 0;
+  const standoff = patrol.tracing ? patrol.extractionStandoff ?? skimmerFollowDistance : 0;
   if (distance > standoff) {
     const speed = patrol.tracing ? skimmerPursuitSpeed : skimmerPatrolSpeed;
     airplane.rotation.y = Math.atan2(direction.x, direction.z);
@@ -2726,12 +2762,10 @@ function updateVaultBeacon(elapsed) {
   }
   const effect = beacon.userData;
   const ready = charge >= fullCharge;
-  const cracking = isVictorious;
-  const sweepRate = cracking ? 1.85 : ready ? 0.8 : 0.46;
-  effect.phase = (effect.phase + elapsed * sweepRate) % 1;
+  effect.phase = (effect.phase + elapsed * (ready ? 0.8 : 0.46)) % 1;
   const pulse = 0.5 - 0.5 * Math.cos(effect.phase * Math.PI * 2);
-  core.rotation.y += elapsed * (cracking ? 3.1 : 0.65);
-  effect.shell.material.opacity = (cracking ? 0.33 : ready ? 0.22 : 0.13) + pulse * 0.06;
+  core.rotation.y += elapsed * 0.65;
+  effect.shell.material.opacity = (ready ? 0.22 : 0.13) + pulse * 0.06;
   effect.spine.material.opacity = (ready ? 0.52 : 0.24) + pulse * 0.14;
   effect.base.material.opacity = 0.5 + pulse * 0.3;
   effect.sweeps.forEach((sweep, index) => {
@@ -2821,6 +2855,7 @@ function updateArenaStatus() {
   const distance = target ? Math.ceil(Math.hypot(camera.position.x - target.x, camera.position.z - target.z) / 10) * 10 : 0;
   const vaultReady = dataVault && camera.position.distanceToSquared(dataVault.position) <= vaultRange ** 2;
   const phase = escaped ? "Extraction complete" : escapeBeam ? "Reach the extraction beam" :
+    droppedKey ? "Pick up the encryption key" :
     dataVault?.visible === false ? "Vault pending · Look away or move" :
     charge >= fullCharge ? (vaultReady ? "Vault in range · Fire" : "Vault ready · Move closer") :
       "Breach data transports to fill the buffer";
@@ -2835,7 +2870,9 @@ function updateArenaStatus() {
   if (moonStatus.textContent !== heat) moonStatus.textContent = heat;
   const patrol = !isDead && !escaped ? airplanes[0]?.userData.surveillance : null;
   let trace = "";
-  if (patrol?.tracing) {
+  if (escapeBeam && !isDead && !escaped) {
+    trace = "SKIMMER TRACE · GRIDWIDE";
+  } else if (patrol?.tracing) {
     const remaining = skimmerTraceTimeout(patrol) - patrol.hiddenTime;
     const cue = patrol.hiddenTime > 0 ? "STAY DARK " + remaining.toFixed(1) + " s" :
       patrol.groundContact ? "GROUND RELAY ACTIVE · BREAK SIGHT" : "EXIT THE CONE OR BREAK SIGHT";
@@ -2844,7 +2881,8 @@ function updateArenaStatus() {
     trace = patrol.reacquireTime > 0 ? "SKIMMER SEARCH · STAY DARK" : "SKIMMER SWEEP · GET UNDER COVER";
   }
   if (patrolStatus.textContent !== trace) patrolStatus.textContent = trace;
-  const enforcement = isDead || escaped || huntingPedestrians === 0 ? "" : sightedEnforcers > 0 ?
+  const enforcement = isDead || escaped || huntingPedestrians === 0 ? "" :
+    escapeBeam ? "ENFORCER TRACE · GRIDWIDE" : sightedEnforcers > 0 ?
     "ENFORCER TRACE · VISUAL ×" + sightedEnforcers :
     patrol?.tracing && patrol.hiddenTime === 0 && patrol.linkedEnforcers.size > 0 ?
       "ENFORCER TRACE · SKIMMER RELAY" : "ENFORCER TRACE · CHECKING LAST CONTACT";
@@ -2999,13 +3037,72 @@ function fractureVault() {
   scene.add(group);
   vaultBurst = { group, ring, flash, shards, position, velocity, age: 0 };
   updateVaultBurst(0);
+  playVaultFracture();
+  return origin;
+}
 
+function createDroppedKey(origin) {
+  const key = new THREE.Group();
+  key.position.copy(origin);
+  const glyph = new THREE.Group();
+  glyph.position.y = 3.4;
+  const material = glowMaterial(0xffed90, 0.9);
+  const handle = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.98, 6), material);
+  handle.position.y = 0.95;
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.8, 0.38), material);
+  shaft.position.y = -0.67;
+  const bit = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.38, 0.38), material);
+  bit.position.set(0.27, -1.28, 0);
+  glyph.add(handle, shaft, bit);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(keyPickupRadius - 0.35, keyPickupRadius, 32),
+    glowMaterial(0xffdd79, 0.6)
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.15;
+  key.add(glyph, ring);
+  key.userData = { glyph, ring, age: 0, pickupDelay: 0.35 };
+  scene.add(key);
+  return key;
+}
+
+function updateDroppedKey(elapsed) {
+  if (!droppedKey) return;
+  const effect = droppedKey.userData;
+  effect.age += elapsed;
+  const wave = Math.sin(effect.age * 4);
+  effect.glyph.position.y = 3.4 + 0.45 * wave;
+  effect.glyph.rotation.y += elapsed * 1.85;
+  effect.ring.material.opacity = 0.6 + wave * 0.2;
+}
+
+function updateKeyPickup(step) {
+  if (!droppedKey || isDead || isVictorious || !retryMapButton.hidden) return;
+  const effect = droppedKey.userData;
+  effect.pickupDelay = Math.max(0, effect.pickupDelay - step);
+  if (effect.pickupDelay > 0) return;
+  const { x, z } = droppedKey.position;
+  if (Math.hypot(camera.position.x - x, camera.position.z - z) > keyPickupRadius) return;
+  const next = arenaRoute[keysCollected + 1];
+  if (next) expandMap(next.x, next.z);
+  else beginEscape();
+}
+
+function takeDroppedKey() {
+  const origin = droppedKey.position.clone();
+  disposeObjects([droppedKey]);
+  droppedKey = null;
   clearTimeout(breachOverlayTimeout);
   breachOverlay.hidden = true;
   void breachOverlay.offsetWidth;
   breachOverlay.hidden = false;
   breachOverlayTimeout = setTimeout(() => { breachOverlay.hidden = true; }, 1150);
-  playVaultFracture();
+  if (audioCtx.state === 'running') {
+    const time = audioCtx.currentTime;
+    playSynthTone('triangle', time, 0.18, 440, 523.25, 0.15);
+    playSynthTone('triangle', time + 0.075, 0.28, 659.25, 880, 0.17);
+  }
   return origin;
 }
 
@@ -3046,24 +3143,24 @@ function playVaultFracture() {
 
 function beginEscape() {
   const { point: site, radius } = extractionSite;
-  charge = 0;
   if (isFreeFly) setHackActive(false);
   keysCollected++;
   clearBuildingHighlight();
-  decryptSectorBuildings(activeSection, fractureVault());
+  decryptSectorBuildings(activeSection, takeDroppedKey());
   escapeBeam = createEscapeBeam(site, radius);
   updateEscapeBeam(0);
   scene.add(escapeBeam);
+  startExtractionPursuit();
   moonHeat = Math.max(moonHeat, 82);
   clearMoonStrike();
   moonStrikeProgress = 0.65;
   raiseMoonAlert();
   updateChargeMeter();
-  showMessage("Nine keys taken. Run for the extraction beam. The Supervisor is closing in.", objectiveMessageDuration);
+  showMessage("Nine keys taken. Enforcers and skimmers have your signal. Run for the extraction beam.", objectiveMessageDuration);
 }
 
 function hitDataVault() {
-  if (!retryMapButton.hidden || isDead || isVictorious) return;
+  if (!dataVault || !retryMapButton.hidden || isDead || isVictorious) return;
   if (charge < fullCharge) {
     showMessage("Vault sealed. Fill the Decrypt Buffer before you fire.");
     return;
@@ -3072,9 +3169,11 @@ function hitDataVault() {
     showMessage("Move closer to the vault.");
     return;
   }
-  const next = arenaRoute[keysCollected + 1];
-  if (next) expandMap(next.x, next.z);
-  else beginEscape();
+  charge = 0;
+  if (isFreeFly) setHackActive(false);
+  droppedKey = createDroppedKey(fractureVault());
+  updateChargeMeter();
+  showMessage("Vault cracked. Pick up the encryption key.", objectiveMessageDuration);
 }
 
 function clearMoonStrike(keepBlast = false) {
@@ -3387,7 +3486,7 @@ function updateExtractionSequence(elapsed) {
 }
 
 async function expandMap(targetX, targetZ) {
-  if (isDead || isVictorious) return;
+  if (!droppedKey || isDead || isVictorious) return;
   isVictorious = true;
   updateReticleVisibility();
 
@@ -3410,7 +3509,7 @@ async function expandMap(targetX, targetZ) {
     gameOverDiv.style.borderColor = '#ff8b99';
     offerMapRetry(() => {
       gameOverDiv.style.display = 'none';
-      hitDataVault();
+      return expandMap(targetX, targetZ);
     });
     return;
   } finally {
@@ -3418,7 +3517,7 @@ async function expandMap(targetX, targetZ) {
     stopInterceptHints(hints);
   }
 
-  const vaultOrigin = fractureVault();
+  const vaultOrigin = takeDroppedKey();
   clearMoonStrike();
   clearBuildingHighlight();
   if (isFreeFly) setHackActive(false);
@@ -3438,7 +3537,6 @@ async function expandMap(targetX, targetZ) {
   decryptSectorBuildings(activeSection, vaultOrigin);
 
   keysCollected++;
-  charge = 0;
   activateSection(section);
   placeDataVault();
   if (![...sections.values()].some(loaded => isPointInSection(camera.position, loaded.box))) {
@@ -3714,8 +3812,23 @@ function updateTraffic() {
         if (pursuit && !isDead) {
             ped.userData.speed = angryPedestrianSpeed;
             const target = pursuit.searchPoint ?? pursuit.lastKnown;
-            moveDir = ped.position.distanceToSquared(target) > 3 ** 2 ?
-                findPathAroundBuilding(ped, target) : new THREE.Vector3();
+            if (ped.position.distanceToSquared(target) <= 3 ** 2) {
+                moveDir = new THREE.Vector3();
+            } else if (escapeBeam) {
+                if (!pursuit.steering) {
+                    pursuit.steering = new THREE.Vector3(target.x - ped.position.x, 0, target.z - ped.position.z)
+                        .normalize().multiplyScalar(ped.userData.speed);
+                    pursuit.steerTimer = Math.random() * extractionSteeringInterval;
+                }
+                pursuit.steerTimer -= simulationStep;
+                if (pursuit.steerTimer <= 0) {
+                    pursuit.steering = findPathAroundBuilding(ped, target);
+                    pursuit.steerTimer += extractionSteeringInterval;
+                }
+                moveDir = pursuit.steering;
+            } else {
+                moveDir = findPathAroundBuilding(ped, target);
+            }
         } else {
             ped.userData.speed = pedestrianSpeed;
             const currentPos = ped.position.clone();
@@ -3921,6 +4034,13 @@ function updateTraffic() {
 
         airplane.position.y = airplaneAltitude;
     });
+    if (escapeBeam && !isDead) {
+      extractionSweepTimer = Math.max(0, extractionSweepTimer - simulationStep);
+      if (extractionSweepTimer === 0 && airplanes.some(airplane => airplane.userData.surveillance?.inCone)) {
+        playSkimmerSweep();
+        extractionSweepTimer = 0.45;
+      }
+    }
 
     const wasHunting = huntingPedestrians > 0;
     huntingPedestrians = 0;
@@ -4142,11 +4262,12 @@ function updateScanOverlay() {
   scanHeading.style.transform =
     `translate(${player.x}px, ${player.y}px) translate(-50%, -50%) rotate(${heading}rad)`;
 
-  const point = escapeBeam?.userData.site ?? dataVault?.position;
+  const point = escapeBeam?.userData.site ?? droppedKey?.position ?? dataVault?.position;
   scanTarget.hidden = !point;
   const target = point ? projectOntoScan(point) : null;
   if (target) {
-    const label = escapeBeam ? "EXTRACTION POINT" : "VAULT · " + activeSection.corporation.name;
+    const label = escapeBeam ? "EXTRACTION POINT" :
+      (droppedKey ? "ENCRYPTION KEY · " : "VAULT · ") + activeSection.corporation.name;
     if (scanTarget.textContent !== label) scanTarget.textContent = label;
     scanTarget.classList.toggle('extraction', !!escapeBeam);
     scanTarget.style.transform =
@@ -4299,6 +4420,7 @@ function animate(frameTime) {
     if (!isDead) {
       updateTransportSupply(simulationStep);
       updatePlayer();
+      updateKeyPickup(simulationStep);
       updateEscape();
       if (!isVictorious) updateMoon(simulationStep);
     }
@@ -4309,6 +4431,7 @@ function animate(frameTime) {
 
   updateExplosions();
   updateVaultBeacon(elapsed);
+  updateDroppedKey(elapsed);
   updateVaultBurst(elapsed);
   updateDecryptionWave(elapsed);
   updateSkimmerSweep(elapsed);
