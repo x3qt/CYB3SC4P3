@@ -76,6 +76,17 @@
       font: 700 12px/1.4 monospace;
       display: none;
     }
+    #health.damaged {
+      animation: integrityHit .4s ease-out;
+    }
+    @keyframes integrityHit {
+      0%, 25% {
+        color: #ffd3d9;
+        background: #591525;
+        border-bottom-color: #ff536c;
+        box-shadow: 0 0 12px #ff536c80;
+      }
+    }
     #arenaStatus {
       position: absolute;
       top: 44px;
@@ -510,6 +521,27 @@
     }
     @media (max-width: 390px) {
       #chargeMeter, #health { min-width: 0; font-size: 10px; }
+    }
+    @media (pointer: coarse) {
+      #health, #chargeMeter {
+        top: 7px;
+        min-width: 0;
+        padding: 3px 5px;
+        font-size: 11px;
+        line-height: 1.25;
+      }
+      #health { left: 7px; }
+      #chargeMeter { right: 7px; }
+      #arenaStatus {
+        top: 32px;
+        right: 7px;
+        max-width: min(220px, 68vw);
+        padding: 3px 5px;
+        border-right-width: 1px;
+        background: rgba(7, 10, 24, .78);
+        font-size: 11px;
+        line-height: 1.25;
+      }
     }
     @keyframes blink {
       0% { opacity: 0; }
@@ -1826,16 +1858,29 @@ function isPatrolSector() {
   return keysCollected === 1 || keysCollected >= 3;
 }
 
-function patrolRoute(section) {
+function patrolRoute(section, vault = section.vaultSite) {
   const { min, max } = section.box;
   const insetX = (max.x - min.x) * 0.2;
   const insetZ = (max.z - min.z) * 0.2;
-  return [
+  const route = [
     new THREE.Vector3(min.x + insetX, patrolAltitude, min.z + insetZ),
     new THREE.Vector3(max.x - insetX, patrolAltitude, min.z + insetZ),
     new THREE.Vector3(max.x - insetX, patrolAltitude, max.z - insetZ),
     new THREE.Vector3(min.x + insetX, patrolAltitude, max.z - insetZ)
   ];
+  if (vault) {
+    // Tighten the patrol after each key while keeping the loop inside its sector.
+    const progress = Math.max(0, Math.min(1, (keysCollected - 1) / (arenaRoute.length - 2)));
+    const farthest = Math.max(...route.map(point => Math.hypot(point.x - vault.x, point.z - vault.z)));
+    // Leave a turn beyond the sweep so players still get a window to approach.
+    const maxPull = Math.max(0, 1 - (patrolScanRadius + 38) / farthest);
+    const pull = Math.min(progress * 0.58, maxPull);
+    for (const point of route) {
+      point.x += (vault.x - point.x) * pull;
+      point.z += (vault.z - point.z) * pull;
+    }
+  }
+  return route;
 }
 
 function spawnSurveillancePatrol(route, startIndex = 0) {
@@ -2094,7 +2139,7 @@ function startExtractionPursuit() {
   for (const enforcer of pedestrians) reportEnforcerContact(enforcer, camera.position);
   huntingPedestrians = pedestrians.length;
 
-  const route = patrolRoute(activeSection);
+  const route = patrolRoute(activeSection, null);
   const ingress = route.map((point, index) => ({ index, distance: point.distanceToSquared(camera.position) }))
     .sort((a, b) => a.distance - b.distance);
   const skimmers = airplanes.filter(airplane => airplane.userData.surveillance);
@@ -2483,10 +2528,6 @@ function findPathAroundBuilding(ped, targetPos) {
           const pushed = camera.position.clone().addScaledVector(hitDir, 2);
           camera.position.copy(checkBuildingCollisions(camera.position, pushed, playerRadius));
           reducePlayerHealth(1);
-          healthDisplay.innerText = 'LINK INTEGRITY ' + playerHealth + '%';
-          if (playerHealth <= 0 && !isDead) {
-            showDeathScreen();
-          }
         }
       }
     }
@@ -3732,7 +3773,6 @@ async function expandMap(targetX, targetZ) {
           const idx = pedestrians.indexOf(obj);
           if (idx > -1) pedestrians.splice(idx, 1);
           createPedestrianExplosion(obj.position.x, obj.position.y, obj.position.z);
-          regenerateHealth(1);
         }
 
       }
@@ -3996,12 +4036,6 @@ function updateTraffic() {
                 // Apply 70% hit chance for this shot
                 if (Math.random() < 0.7) {
                     reducePlayerHealth(1);
-                    const hitIndicator = document.getElementById('hitIndicator');
-                    hitIndicator.style.animation = 'blink 0.5s';
-                    setTimeout(() => { hitIndicator.style.animation = ''; }, 500);
-                    if (playerHealth <= 0 && !isDead) {
-                        showDeathScreen();
-                    }
                 }
 
                 // Alert nearby pedestrians
@@ -4756,6 +4790,10 @@ requestAnimationFrame(animate);
     function reducePlayerHealth(amount) {
         playerHealth = Math.max(0, playerHealth - amount);
         healthDisplay.innerText = 'LINK INTEGRITY ' + playerHealth + '%';
+        if (!healthDisplay.classList.contains('damaged')) {
+            healthDisplay.classList.add('damaged');
+            setTimeout(() => healthDisplay.classList.remove('damaged'), 400);
+        }
         
         // Use the same hit indicator effect as when shot
         const hitIndicator = document.getElementById('hitIndicator');
