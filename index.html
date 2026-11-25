@@ -103,6 +103,23 @@
     }
     #hackStatus { color: var(--violet); }
     #moonStatus { color: var(--danger); }
+    #supervisorLockAlert {
+      position: absolute;
+      top: 38%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      max-width: calc(100% - 32px);
+      box-sizing: border-box;
+      padding: 6px 12px;
+      border: 1px solid var(--danger);
+      background: var(--panel);
+      box-shadow: 0 0 16px #ff536c70;
+      color: var(--danger);
+      font: 700 clamp(12px, 2vw, 16px)/1.3 monospace;
+      text-align: center;
+      z-index: 201;
+      pointer-events: none;
+    }
     #patrolStatus { color: var(--violet); }
     #enforcerStatus { color: var(--amber); }
     #scanOverlay {
@@ -150,11 +167,18 @@
       left: 0;
     }
     #scanHeading {
-      width: 28px;
-      color: white;
-      font-size: 22px;
-      text-align: center;
-      text-shadow: 0 0 7px #667dff, 0 0 3px #000;
+      z-index: 3;
+      box-sizing: border-box;
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--cyan);
+      border-radius: 50%;
+      background: #080d20;
+      color: #fff;
+      font: 22px/1 monospace;
+      box-shadow: 0 0 0 2px #080d20, 0 0 12px #35f6e5a6;
     }
     #scanTarget, .scanSectorLabel {
       padding: 3px 6px;
@@ -238,8 +262,10 @@
       animation: openingSweep 3s linear infinite;
     }
     #openingBackdrop.extraction-outro {
+      background: linear-gradient(180deg, #060710f5 0%, #0e0e20cf 43%, #06071076 100%);
       animation: rooftopToGrid .8s ease-in-out both;
     }
+    #openingBackdrop.extraction-outro::before { opacity: .38; }
     #extractionFlash {
       position: fixed;
       inset: 0;
@@ -314,32 +340,73 @@
       font: 14px/1.6 monospace;
     }
     #extractionReport[hidden] { display: none; }
-    #extractionReport::before, #extractionReport::after {
-      content: "";
-      position: absolute;
-      z-index: -1;
-      inset: 50% auto auto 50%;
-      width: min(64vw, 540px);
-      aspect-ratio: 1;
-      border: 1px solid #9dffe0;
-      border-radius: 50%;
-      box-shadow: 0 0 22px #33dfbb, inset 0 0 22px #33dfbb77;
-      transform: translate(-50%, -50%) scale(.78);
-      opacity: .3;
-      animation: extractionWave 2.6s ease-out infinite;
-    }
-    #extractionReport::after { animation-delay: -.8s; }
     #extractionReport h1 {
-      margin: 4px 0 12px;
+      margin: 0;
       font-size: clamp(35px, 7.5vw, 100px);
       line-height: .98;
       text-shadow: 2px 0 #de4a96, -2px 0 #3cf5cd, 0 0 32px #24af98;
-      animation: extractionTitle .9s ease-out both;
+      animation: extractionTitle .65s .55s ease-out both;
     }
-    #extractionReport p { margin: 4px 0; color: #d9fff4; }
-    @keyframes extractionWave {
-      from { transform: translate(-50%, -50%) scale(.24); opacity: .65; }
-      to { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+    #extractionReport p {
+      margin: 10px auto 0;
+      max-width: min(580px, 86vw);
+      color: #d9fff4;
+      font-size: clamp(13px, 2.3vw, 18px);
+      text-shadow: 0 1px 5px #030711;
+      animation: extractionTitle .55s .72s ease-out both;
+    }
+    #extractionNetwork {
+      position: relative;
+      isolation: isolate;
+      justify-self: center;
+      width: min(510px, 82vw);
+      width: min(510px, 82vw, 88dvh);
+      aspect-ratio: 2 / 1;
+      margin-top: clamp(10px, 3vh, 24px);
+    }
+    #extractionNetwork::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: #0a1426b0;
+      clip-path: polygon(58% 4%, 88% 65%, 42% 96%, 12% 35%);
+    }
+    .extraction-node, .extraction-link {
+      position: absolute;
+    }
+    .extraction-node {
+      width: clamp(12px, 3vw, 21px);
+      aspect-ratio: 1;
+      transform: translate(-50%, -50%) rotate(45deg);
+      border: 1px solid #befff4;
+      background: #164640;
+      box-shadow: 0 0 10px #45ffe39c;
+      display: grid;
+      place-items: center;
+      animation: extractionNodeIn .23s var(--unlock-at) ease-out both;
+    }
+    .extraction-node::after {
+      content: "";
+      width: 45%;
+      aspect-ratio: 1;
+      background: var(--amber);
+    }
+    .extraction-link {
+      height: 2px;
+      transform: rotate(var(--link-angle));
+      transform-origin: left center;
+      background: #8cffe8;
+      box-shadow: 0 0 7px #42ffe1ad;
+      animation: extractionLinkIn .27s var(--unlock-at) ease-out both;
+    }
+    @keyframes extractionNodeIn {
+      from { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(.45); }
+      to { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1); }
+    }
+    @keyframes extractionLinkIn {
+      from { transform: rotate(var(--link-angle)) scaleX(0); opacity: 0; }
+      to { transform: rotate(var(--link-angle)) scaleX(1); opacity: 1; }
     }
     @keyframes extractionTitle {
       from { opacity: 0; transform: scale(.87); }
@@ -510,7 +577,8 @@
       #openingBackdrop.extraction-outro, #extractionFlash,
       #intro[data-stage="studio"], #intro[data-stage="title"],
       #scanOverlay::before, #scanTarget::after, #chargeMeter.pulse,
-      #extractionReport::before, #extractionReport::after, #extractionReport h1 { animation: none; }
+      #extractionReport h1, #extractionReport p,
+      .extraction-node, .extraction-link { animation: none; }
       #breachOverlay::before { animation: none; background: none; }
     }
     @media (max-width: 980px) {
@@ -574,12 +642,14 @@
   <div id="intro" hidden></div>
   <div id="interceptHint" hidden></div>
   <section id="extractionReport" hidden role="status">
-    <h1>EXTRACTION COMPLETE</h1>
-    <p>PAYLOAD INTACT · TRACE COLD</p>
+    <h1>THE NET IS YOURS</h1>
+    <p>You left the Supervisor guarding an open city.</p>
+    <div id="extractionNetwork" aria-hidden="true"></div>
   </section>
   <div id="gameOver"></div>
   <button id="retry-map" type="button" hidden>Retry sector sync</button>
   <div id="message" role="status"></div>
+  <div id="supervisorLockAlert" role="alert" hidden>SUPERVISOR LOCK · RUN OR GET BURNED</div>
   <div id="hitIndicator"></div>
   <div id="reticle"></div>
   <canvas id="noiseOverlay"></canvas>
@@ -633,6 +703,7 @@
     let font = null;
     const fullCharge = 100;
     const transportCharge = 5;
+    const keyBufferReward = 15;
 
     let cars = [];
     let pedestrians = [];
@@ -761,7 +832,8 @@
     const enableWallAnimation = true;
     const wallParticleDensity = 4;
 
-    const hackBufferDrain = 2; // Percentage points per second while stationary
+    const hackBufferDrain = 1; // Percentage points per second.
+    const movingHackBufferDrain = 2;
 
 
 
@@ -867,6 +939,7 @@ const arenaStatus = document.getElementById('arenaStatus');
 const arenaObjective = document.getElementById('arenaObjective');
 const hackStatus = document.getElementById('hackStatus');
 const moonStatus = document.getElementById('moonStatus');
+const supervisorLockAlert = document.getElementById('supervisorLockAlert');
 const patrolStatus = document.getElementById('patrolStatus');
 const enforcerStatus = document.getElementById('enforcerStatus');
 const scanOverlay = document.getElementById('scanOverlay');
@@ -892,18 +965,18 @@ const openingStageDuration = 3000;
 const interceptionDuration = 5000;
 const objectiveMessageDuration = 12000;
 const interceptionHints = [
-  "Crack open a data transport for 5% Decrypt Buffer and 1% Link Integrity.",
+  "Crack open a data transport for 5% Decrypt Buffer and 2% Link Integrity.",
   "Work the curb. Traffic hits cost Link Integrity.",
   "Roads gone quiet? Replacement transports enter when supply runs low.",
   "Open Scan for the active vault. Follow the teal dashes through open ICE.",
   "Full buffer. Move closer to the amber vault and fire. The crack spends the whole buffer and drops a key.",
-  "Pick up the dropped encryption key to open the next sector. Scan marks the pickup.",
-  "Every key opens a sector and raises Supervisor Heat. Your shots pass through decrypted wireframes.",
-  "Hack lets your shots pierce one solid building. Vaults still block fire. Hack drains 2% per second, or 4% on the move.",
+  "Pick up the encryption key to unlock the next sector and restore 15% Decrypt Buffer. Scan marks the pickup.",
+  "Every key opens a sector, raises Supervisor Heat, and lets Hack pierce one more building.",
+  "Hack starts at one building per shot. ICE and vaults stop fire. Hack drains 1% per second, or 2% on the move.",
   "Hear the violet sweep ring? You’re inside the cone. Get out or get under cover.",
   "Exit the cone or break sight with the skimmer and its violet-marked relays. Taking out the relays drops the trace faster.",
   "Break sight, then turn again. Enforcers check where they last saw you and the exits nearby.",
-  "Breaches, firefights, and Hack draw enforcers. Opening a sector won’t shake their trace.",
+  "Vault hits, firefights, and Hack draw enforcers. Opening a sector won’t shake their trace.",
   "Hear the Supervisor’s lock alarm? Clear the red ring before the beam hits.",
   "Nine keys light the extraction beam. Every enforcer and skimmer comes for you. Keep moving."
 ];
@@ -919,6 +992,7 @@ let hintIndex = Math.floor(Math.random() * interceptionHints.length);
 let breachOverlayTimeout;
 let vaultBurst;
 let decryptionWave;
+const buildingsWithHackedMesh = new Set();
 
 function sectionKey(x, z) {
   return x + ',' + z;
@@ -1396,6 +1470,7 @@ function retainSectionBuildings(section) {
 
 function releaseSection(section) {
   const removed = [section.group];
+  removeHackedBuildingMesh(section);
   neonAds = neonAds.filter(ad => !section.holoAds.includes(ad));
   section.holoTexture?.dispose();
   section.scanLabel.remove();
@@ -1408,7 +1483,7 @@ function releaseSection(section) {
       removed.push(building);
     }
   }
-  if (section.buildings.includes(highlightedBuilding)) clearBuildingHighlight();
+  if (section.buildings.some(building => highlightedBuildings.has(building))) clearBuildingHighlight();
   disposeObjects(removed);
 }
 
@@ -2903,10 +2978,11 @@ function updateArenaStatus() {
   const keyCount = "KEYS " + keysCollected + "/" + arenaRoute.length;
   const label = keyCount + " · " + phase + (target && !escaped ? " · " + distance + " m" : "");
   const heat = "SUPERVISOR HEAT " + Math.floor(moonHeat) + "%" +
-    (moonAttack?.phase === "lock" ? " · LOCKED · CLEAR THE RED RING" :
-      moonAttack?.phase === "track" ? " · TRACKING SIGNAL" : "");
+    (moonAttack?.phase === "track" ? " · TRACKING SIGNAL" : "");
   if (arenaObjective.textContent !== label) arenaObjective.textContent = label;
-  const hack = isFreeFly ? "HACK LIVE · BUFFER −" + (hackMoving ? 4 : 2) + "%/s" : "";
+  const depth = hackPenetrationDepth();
+  const hack = isFreeFly ? "HACK LIVE · " + depth + (depth === 1 ? " BUILDING" : " BUILDINGS") +
+    " · −" + (hackMoving ? movingHackBufferDrain : hackBufferDrain) + "%/s" : "";
   if (hackStatus.textContent !== hack) hackStatus.textContent = hack;
   if (moonStatus.textContent !== heat) moonStatus.textContent = heat;
   const patrol = !isDead && !escaped ? airplanes[0]?.userData.surveillance : null;
@@ -2994,13 +3070,78 @@ function updateEscapeBeam(elapsed) {
   });
 }
 
-function decryptSectorBuildings(section, origin) {
-  finishDecryptionWave();
+function addHackedBuildingMesh(section) {
+  if (section.hackedBuildingMesh) return;
+  const positions = [];
+  const colors = [];
+  const surfaces = [];
+  const point = new THREE.Vector3();
+  for (const building of section.buildings) {
+    if (buildingsWithHackedMesh.has(building)) continue;
+    const frame = new THREE.WireframeGeometry(building.geometry);
+    const vertices = frame.getAttribute('position');
+    if (vertices.count === 0) {
+      frame.dispose();
+      continue;
+    }
+    const material = highlightedBuildings.get(building)?.originalMaterial ?? building.material;
+    const color = material.emissive ?? material.color;
+    building.updateMatrixWorld(true);
+    for (let index = 0; index < vertices.count; index++) {
+      point.fromBufferAttribute(vertices, index).applyMatrix4(building.matrixWorld);
+      positions.push(point.x, point.y, point.z);
+      colors.push(color.r, color.g, color.b);
+    }
+    frame.dispose();
+    surfaces.push({
+      building,
+      material,
+      offset: material.polygonOffset,
+      factor: material.polygonOffsetFactor,
+      units: material.polygonOffsetUnits
+    });
+    // Bias the filled triangles so the lines can sit on the same surface.
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = 1;
+    material.polygonOffsetUnits = 1;
+    buildingsWithHackedMesh.add(building);
+  }
+  if (positions.length === 0) return;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+  const mesh = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.6,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  }));
+  section.group.add(mesh);
+  section.hackedBuildingMesh = { mesh, surfaces };
+}
+
+function removeHackedBuildingMesh(section) {
+  const overlay = section.hackedBuildingMesh;
+  if (!overlay) return;
+  for (const { building, material, offset, factor, units } of overlay.surfaces) {
+    material.polygonOffset = offset;
+    material.polygonOffsetFactor = factor;
+    material.polygonOffsetUnits = units;
+    buildingsWithHackedMesh.delete(building);
+  }
+  disposeObjects([overlay.mesh]);
+  delete section.hackedBuildingMesh;
+}
+
+function wireframeExtractionCity(origin) {
+  for (const section of sections.values()) removeHackedBuildingMesh(section);
   const footprint = [];
   const meshSignals = [];
   let extent = 1;
-  for (const building of section.buildings) {
-    if (building.userData.isCleared) continue;
+  for (const building of buildings) {
+    if (!isSolidBuilding(building)) continue;
     const oldMaterial = building.material;
     building.material = new THREE.MeshBasicMaterial({
       color: oldMaterial.emissive || 0x111111,
@@ -3016,7 +3157,7 @@ function decryptSectorBuildings(section, origin) {
       appendGroundStrip(footprint, x, z, x + tx * length, z + tz * length, 0.8, 0.09);
     }
   }
-  if (footprint.length > 0) section.group.add(groundOverlay(footprint, 0x91a7ff));
+  if (footprint.length > 0) scene.add(groundOverlay(footprint, 0x91a7ff));
   decryptionWave = { meshSignals, extent, age: 0, pulseColor: new THREE.Color(0xa4ffec) };
 }
 
@@ -3131,9 +3272,10 @@ function updateKeyPickup(step) {
 }
 
 function takeDroppedKey() {
-  const origin = droppedKey.position.clone();
+  addHackedBuildingMesh(activeSection);
   disposeObjects([droppedKey]);
   droppedKey = null;
+  charge = Math.min(fullCharge, charge + keyBufferReward);
   clearTimeout(breachOverlayTimeout);
   breachOverlay.hidden = true;
   void breachOverlay.offsetWidth;
@@ -3144,7 +3286,6 @@ function takeDroppedKey() {
     playSynthTone('triangle', time, 0.18, 440, 523.25, 0.15);
     playSynthTone('triangle', time + 0.075, 0.28, 659.25, 880, 0.17);
   }
-  return origin;
 }
 
 function updateVaultBurst(elapsed) {
@@ -3182,12 +3323,17 @@ function playVaultFracture() {
   );
 }
 
+function showKeyPickup(nextCue, duration) {
+  const progress = "KEY " + keysCollected + "/" + arenaRoute.length + " TAKEN";
+  showMessage(progress + " · Hack now pierces up to " + hackPenetrationDepth() + " buildings per shot. " + nextCue, duration);
+}
+
 function beginEscape() {
   const { point: site, radius } = extractionSite;
   if (isFreeFly) setHackActive(false);
   keysCollected++;
   clearBuildingHighlight();
-  decryptSectorBuildings(activeSection, takeDroppedKey());
+  takeDroppedKey();
   escapeBeam = createEscapeBeam(site, radius);
   updateEscapeBeam(0);
   scene.add(escapeBeam);
@@ -3197,11 +3343,12 @@ function beginEscape() {
   moonStrikeProgress = 0.65;
   raiseMoonAlert();
   updateChargeMeter();
-  showMessage("Nine keys taken. Enforcers and skimmers have your signal. Run for the extraction beam.", objectiveMessageDuration);
+  showKeyPickup("The grid has your signal. Run for the extraction beam.", objectiveMessageDuration);
 }
 
 function hitDataVault() {
   if (!dataVault || !retryMapButton.hidden || isDead || isVictorious) return;
+  alertEnforcersNear(dataVault.position);
   if (charge < fullCharge) {
     showMessage("Vault sealed. Fill the Decrypt Buffer before you fire.");
     return;
@@ -3219,6 +3366,7 @@ function hitDataVault() {
 
 function clearMoonStrike(keepBlast = false) {
   moonAttack = null;
+  supervisorLockAlert.hidden = true;
   if (moonRing) moonRing.visible = false;
   if (moonBlast && !keepBlast) moonBlast.root.visible = false;
 }
@@ -3350,9 +3498,11 @@ function updateMoon(step) {
       moonAttack.phase = "lock";
       moonAttack.time = extracting ? 0.72 : 0.85;
       moonRing.material.color.setHex(0xff2020);
+      supervisorLockAlert.hidden = false;
       playMoonWarning(moonAttack.time);
     }
   } else if (moonAttack.time <= 0 && moonAttack.phase === "lock") {
+    supervisorLockAlert.hidden = true;
     const target = moonRing.position;
     const radius = moonAttack.radius;
     fireMoonBlast(target, radius);
@@ -3371,6 +3521,39 @@ function playMoonWarning(duration) {
   playSynthTone('square', start, 0.17, 110, 123.47, 0.25);
   playSynthTone('square', start + 0.19, 0.17, 146.83, 164.81, 0.25);
   playSynthTone('square', start + 0.38, duration - 0.38, 164.81, 220, 0.29, 0.035);
+}
+
+function showExtractionReport() {
+  const network = document.getElementById('extractionNetwork');
+  network.replaceChildren();
+  const tiles = arenaRoute.map(({ x, z }, index) => ({
+    x, z, left: 50 - x * 17 + z * 10, top: 50 + x * 12 + z * 24, delay: index * 85
+  }));
+  for (let index = 0; index < tiles.length; index++) {
+    const tile = tiles[index];
+    for (const neighbor of tiles.slice(index + 1)) {
+      if (Math.abs(tile.x - neighbor.x) + Math.abs(tile.z - neighbor.z) !== 1) continue;
+      const link = document.createElement('span');
+      const dx = tile.left - neighbor.left;
+      const dy = (tile.top - neighbor.top) / 2;
+      link.className = 'extraction-link';
+      link.style.left = neighbor.left + '%';
+      link.style.top = neighbor.top + '%';
+      link.style.width = Math.hypot(dx, dy) + '%';
+      link.style.setProperty('--link-angle', Math.atan2(dy, dx) + 'rad');
+      link.style.setProperty('--unlock-at', neighbor.delay + 'ms');
+      network.appendChild(link);
+    }
+  }
+  for (const tile of tiles) {
+    const node = document.createElement('span');
+    node.className = 'extraction-node';
+    node.style.left = tile.left + '%';
+    node.style.top = tile.top + '%';
+    node.style.setProperty('--unlock-at', tile.delay + 'ms');
+    network.appendChild(node);
+  }
+  extractionReport.hidden = false;
 }
 
 function updateEscape() {
@@ -3392,7 +3575,10 @@ function updateEscape() {
   stopCyberpunkMusic();
   stopAudioSources(activeAudioSources);
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    openingBackdrop.hidden = extractionReport.hidden = false;
+    wireframeExtractionCity(point);
+    finishDecryptionWave();
+    openingBackdrop.hidden = false;
+    showExtractionReport();
     playVictoryMusic();
   } else {
     startExtractionSequence(point);
@@ -3430,6 +3616,7 @@ function updateExtractionDeparture(departure, shotCamera, age) {
   shotCamera.lookAt(origin.x, origin.y + 2.3, origin.z);
   if (age >= extractionBurstTime && !departure.burst) {
     departure.burst = true;
+    wireframeExtractionCity(origin);
     if (audioCtx.state === 'running') {
       const time = audioCtx.currentTime;
       playSynthTone('sine', time, 0.26, 110, 55, 0.19, 0.009);
@@ -3480,6 +3667,7 @@ function updateExtractionSequence(elapsed) {
   const shot = extractionSequence;
   shot.age += elapsed;
   const { age, focus, shotCamera, sweep, column, ring } = shot;
+  updateDecryptionWave(elapsed);
   if (age < extractionDepartureTime) {
     updateExtractionDeparture(shot.departure, shotCamera, age);
     return;
@@ -3502,7 +3690,7 @@ function updateExtractionSequence(elapsed) {
   if (age >= 3.15) {
     disposeObjects([sweep]);
     extractionSequence = null;
-    extractionReport.hidden = false;
+    showExtractionReport();
     return;
   }
 
@@ -3558,7 +3746,7 @@ async function expandMap(targetX, targetZ) {
     stopInterceptHints(hints);
   }
 
-  const vaultOrigin = takeDroppedKey();
+  takeDroppedKey();
   clearMoonStrike();
   clearBuildingHighlight();
   if (isFreeFly) setHackActive(false);
@@ -3575,8 +3763,6 @@ async function expandMap(targetX, targetZ) {
   cars = [];
   airplanes = tracingPatrol ? [tracingPatrol] : [];
 
-  decryptSectorBuildings(activeSection, vaultOrigin);
-
   keysCollected++;
   activateSection(section);
   placeDataVault();
@@ -3588,12 +3774,11 @@ async function expandMap(targetX, targetZ) {
   updateReticleVisibility();
   gameOverDiv.style.display = 'none';
   raiseMoonAlert();
-  const progress = "KEY " + keysCollected + "/" + arenaRoute.length + " TAKEN";
-  const nextCue = keysCollected === 1 ? "Your shots pass through decrypted wireframes. Watch for the violet sweep." :
+  const nextCue = keysCollected === 1 ? "Watch for the violet sweep." :
     keysCollected === 2 ? "Supervisor online. Hear the lock alarm? Get out of the red ring." :
     keysCollected === 3 ? "Skimmers back on sweep. The Supervisor is still online." :
     "Sector ICE cracked. Route open.";
-  showMessage(progress + " · " + nextCue);
+  showKeyPickup(nextCue);
 }
 
     function playLaserSound(enforcer = false) {
@@ -3706,6 +3891,21 @@ async function expandMap(targetX, targetZ) {
     return !building.userData.isWall && !building.userData.isCleared;
   }
 
+  function hackPenetrationDepth() {
+    return keysCollected + 1;
+  }
+
+  function findShotBlocker(ray, pierced = new Set()) {
+    const depth = isFreeFly ? hackPenetrationDepth() : 0;
+    for (const hit of raycastBuildings(ray, building => !building.userData.isCleared)) {
+      if (hit.object.userData.isWall) return hit;
+      if (pierced.has(hit.object)) continue;
+      if (pierced.size >= depth) return hit;
+      pierced.add(hit.object);
+    }
+    return null;
+  }
+
   function shoot() {
     playLaserSound();
     const forwardDir = camera.getWorldDirection(new THREE.Vector3());
@@ -3718,21 +3918,22 @@ async function expandMap(targetX, targetZ) {
     const targets = [...cars, ...pedestrians, ...vaultTargets];
     const target = ray.intersectObjects(targets, true)[0];
     ray.far = target?.distance ?? playerShotRange;
-    const buildingsHit = raycastBuildings(ray, isSolidBuilding);
-    const pierced = isFreeFly ? buildingsHit[0]?.object : null;
-    const blocker = buildingsHit.find(hit => hit.object !== pierced);
+    const blocker = findShotBlocker(ray);
     let hitTarget = blocker ? null : target?.object;
     let laserEndPoint = blocker?.point ?? target?.point ?? ray.ray.at(playerShotRange, new THREE.Vector3());
-    if (vaultTargets.length > 0) {
-      const muzzleDirection = laserEndPoint.clone().sub(origin);
-      const muzzleRange = muzzleDirection.length();
-      if (muzzleRange > 0) {
-        const muzzleRay = new THREE.Raycaster(origin, muzzleDirection.multiplyScalar(1 / muzzleRange), 0, muzzleRange);
-        const vaultHit = muzzleRay.intersectObjects(vaultTargets, false)[0];
-        if (vaultHit) {
-          laserEndPoint = vaultHit.point;
-          hitTarget = vaultHit.object;
-        }
+    const muzzleDirection = laserEndPoint.clone().sub(origin);
+    const muzzleRange = muzzleDirection.length();
+    if (muzzleRange > 0) {
+      const muzzleRay = new THREE.Raycaster(origin, muzzleDirection.multiplyScalar(1 / muzzleRange), 0, muzzleRange);
+      const vaultHit = muzzleRay.intersectObjects(vaultTargets, false)[0];
+      muzzleRay.far = vaultHit?.distance ?? muzzleRange;
+      const muzzleBlocker = findShotBlocker(muzzleRay);
+      if (muzzleBlocker) {
+        laserEndPoint = muzzleBlocker.point;
+        hitTarget = null;
+      } else if (vaultHit) {
+        laserEndPoint = vaultHit.point;
+        hitTarget = vaultHit.object;
       }
     }
 
@@ -3765,7 +3966,7 @@ async function expandMap(targetX, targetZ) {
           const idx = cars.indexOf(obj);
           if (idx > -1) cars.splice(idx, 1);
           showTransportExplosion(obj.position.x, obj.position.y, obj.position.z);
-          regenerateHealth(1);
+          regenerateHealth(2);
           charge = Math.min(fullCharge, charge + transportCharge);
           updateChargeMeter();
         } else if (obj.userData.type === "pedestrian") {
@@ -4306,8 +4507,10 @@ function updateScanOverlay() {
       (droppedKey ? "ENCRYPTION KEY · " : "VAULT · ") + activeSection.corporation.name;
     if (scanTarget.textContent !== label) scanTarget.textContent = label;
     scanTarget.classList.toggle('extraction', !!escapeBeam);
+    const nearPlayer = Math.hypot(target.x - player.x, target.y - player.y) < 42;
+    const labelY = nearPlayer ? Math.min(target.y - 12, player.y - 26) : target.y - 12;
     scanTarget.style.transform =
-      `translate(${target.x}px, ${target.y - 12}px) translate(-50%, -100%)`;
+      `translate(${target.x}px, ${labelY}px) translate(-50%, -100%)`;
   }
 
   for (const section of sections.values()) {
@@ -4321,50 +4524,69 @@ function updateScanOverlay() {
   }
 }
 
-let highlightedBuilding = null;
-let highlightedOriginalMaterial = null;
-let hackSweep = null;
+const highlightedBuildings = new Map();
+let hackPreview;
 let hackSweepPhase = 0;
 
+function restoreBuildingHighlight(building, highlight) {
+  building.material = highlight.originalMaterial;
+  scene.remove(highlight.sweep);
+  highlightedBuildings.delete(building);
+}
+
 function clearBuildingHighlight() {
-  if (!highlightedBuilding) return;
-  highlightedBuilding.material.dispose();
-  highlightedBuilding.material = highlightedOriginalMaterial;
-  highlightedBuilding = null;
-  highlightedOriginalMaterial = null;
-  if (hackSweep) hackSweep.visible = false;
+  for (const [building, highlight] of highlightedBuildings) restoreBuildingHighlight(building, highlight);
 }
 
 function updateBuildingHighlight(elapsed) {
   const direction = camera.getWorldDirection(new THREE.Vector3());
   const ray = new THREE.Raycaster(camera.position, direction, 0, playerShotRange);
-  const building = raycastBuildings(ray, isSolidBuilding)[0]?.object ?? null;
-  if (building !== highlightedBuilding) {
-    clearBuildingHighlight();
-    if (!building) return;
-    highlightedBuilding = building;
-    highlightedOriginalMaterial = building.material;
-    building.material = glowMaterial(0x8affe2, 0.45);
-    building.material.wireframe = true;
-    hackSweepPhase = 0;
-    if (!hackSweep) {
-      hackSweep = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMaterial(0xd8a2ff, 0.25));
-      hackSweep.rotation.x = -Math.PI / 2;
-      scene.add(hackSweep);
-    }
+  if (dataVault?.visible) {
+    const vaultHit = ray.intersectObjects(dataVault.userData.shotTargets, false)[0];
+    if (vaultHit) ray.far = vaultHit.distance;
+  }
+  const pierced = new Set();
+  findShotBlocker(ray, pierced);
+  for (const [building, highlight] of highlightedBuildings) {
+    if (!pierced.has(building)) restoreBuildingHighlight(building, highlight);
+  }
+  if (pierced.size === 0) return;
+
+  if (!hackPreview) {
+    hackPreview = {
+      wireMaterials: new Map(),
+      sweepMaterial: glowMaterial(0xd8a2ff, 0.25),
+      sweepGeometry: new THREE.PlaneGeometry(1, 1)
+    };
+  }
+  if (highlightedBuildings.size === 0) hackSweepPhase = 0;
+  for (const building of pierced) {
+    if (highlightedBuildings.has(building)) continue;
+    const sweep = new THREE.Mesh(hackPreview.sweepGeometry, hackPreview.sweepMaterial);
+    sweep.rotation.x = -Math.PI / 2;
     const box = building.userData.box;
     const size = box.getSize(new THREE.Vector3());
-    box.getCenter(hackSweep.position);
-    hackSweep.scale.set(size.x + 1.8, size.z + 1.8, 1);
-    hackSweep.visible = true;
+    box.getCenter(sweep.position);
+    sweep.scale.set(size.x + 1.8, size.z + 1.8, 1);
+    scene.add(sweep);
+    const color = building.material.emissive?.getHex() ?? 0x8affe2;
+    let wireMaterial = hackPreview.wireMaterials.get(color);
+    if (!wireMaterial) {
+      wireMaterial = glowMaterial(color, 0.45);
+      wireMaterial.wireframe = true;
+      hackPreview.wireMaterials.set(color, wireMaterial);
+    }
+    highlightedBuildings.set(building, { originalMaterial: building.material, sweep });
+    building.material = wireMaterial;
   }
-  if (!building) return;
   hackSweepPhase = (hackSweepPhase + elapsed * 0.85) % 1;
-  const { min, max } = building.userData.box;
-  hackSweep.position.y = min.y + (max.y - min.y) * hackSweepPhase;
+  for (const [building, { sweep }] of highlightedBuildings) {
+    const { min, max } = building.userData.box;
+    sweep.position.y = min.y + (max.y - min.y) * hackSweepPhase;
+  }
   const pulse = Math.sin(hackSweepPhase * Math.PI);
-  hackSweep.material.opacity = pulse * 0.34;
-  building.material.opacity = 0.38 + pulse * 0.42;
+  hackPreview.sweepMaterial.opacity = pulse * 0.34;
+  for (const material of hackPreview.wireMaterials.values()) material.opacity = 0.38 + pulse * 0.42;
 }
 
 // Keep the movement and combat values calibrated to 60 simulation updates per second.
@@ -4402,7 +4624,7 @@ function updatePlayer() {
   if (isFreeFly) {
     alertEnforcersNear(resolvedPosition);
     hackMoving = (resolvedPosition.x - currentPos.x) ** 2 + (resolvedPosition.z - currentPos.z) ** 2 > 1e-8;
-    const remaining = charge - hackBufferDrain * (hackMoving ? 2 : 1) * simulationStep;
+    const remaining = charge - (hackMoving ? movingHackBufferDrain : hackBufferDrain) * simulationStep;
     charge = remaining > 1e-8 ? remaining : 0;
     updateChargeMeter();
     if (charge <= 0) {
@@ -4472,7 +4694,6 @@ function animate(frameTime) {
   updateVaultBeacon(elapsed);
   updateDroppedKey(elapsed);
   updateVaultBurst(elapsed);
-  updateDecryptionWave(elapsed);
   updateSkimmerSweep(elapsed);
   updateEscapeBeam(elapsed);
   updateMoonBlast(elapsed);
@@ -4555,7 +4776,7 @@ requestAnimationFrame(animate);
       }, { once: true });
     }
 
-    function playSynthTone(type, start, duration, pitch, endPitch, level, attack = 0.014) {
+    function playSynthTone(type, start, duration, pitch, endPitch, level, attack = 0.014, forMusic = false) {
       const oscillator = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       oscillator.type = type;
@@ -4564,14 +4785,55 @@ requestAnimationFrame(animate);
       gain.gain.setValueAtTime(0.001, start);
       gain.gain.linearRampToValueAtTime(level, start + attack);
       gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-      oscillator.connect(gain).connect(effectsBus);
+      oscillator.connect(gain).connect(forMusic ? musicBus : effectsBus);
       oscillator.start(start);
       oscillator.stop(start + duration);
-      trackAudioSource(oscillator);
+      trackAudioSource(oscillator, forMusic ? gameplayMusicSources : activeAudioSources);
     }
     let musicTimeout = null;
 
     function startCyberpunkMusic() {
+      const extractionBeatDuration = 60 / 150;
+      const extractionChords = [
+        [110, 130.81, 164.81], [87.31, 110, 130.81], [130.81, 164.81, 196], [98, 123.47, 146.83]
+      ];
+      const extractionArp = [0, 2, 1, 2, 0, 1, 2, 1];
+      let extractionNoise;
+
+      function scheduleExtractionNoise(time, length, volume) {
+        if (!extractionNoise) {
+          extractionNoise = audioCtx.createBuffer(1, Math.ceil(audioCtx.sampleRate * 0.14), audioCtx.sampleRate);
+          const samples = extractionNoise.getChannelData(0);
+          for (let index = 0; index < samples.length; index++) samples[index] = Math.random() * 2 - 1;
+        }
+        const source = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        source.buffer = extractionNoise;
+        gain.gain.setValueAtTime(volume, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + length);
+        source.connect(gain).connect(musicBus);
+        source.start(time);
+        source.stop(time + length);
+        trackAudioSource(source, gameplayMusicSources);
+      }
+
+      function scheduleExtractionBeat(time, beat) {
+        const chord = extractionChords[Math.floor(beat / 4) % extractionChords.length];
+        const subdivision = extractionBeatDuration / 4;
+        playSynthTone('sine', time, 0.18, 140, 43, 0.72, 0.004, true);
+        if (beat % 2 === 1) scheduleExtractionNoise(time, 0.13, 0.25);
+
+        for (let index = 0; index < 4; index++) {
+          const noteTime = time + index * subdivision;
+          const pitch = chord[extractionArp[(beat % 2) * 4 + index]] * (index === 3 ? 8 : 4);
+          playSynthTone('square', noteTime, 0.086, pitch, pitch, 0.12, 0.008, true);
+          if (index > 0) {
+            playSynthTone('sawtooth', noteTime, 0.092, chord[0], chord[0] / 2, 0.31, 0.006, true);
+            scheduleExtractionNoise(noteTime, index === 2 ? 0.07 : 0.035, index === 2 ? 0.16 : 0.09);
+          }
+        }
+      }
+
       function scheduleBass(startTime, second) {
         const bassPattern = [60, 62, 64, 65, 67, 69, 71, 72];
         for (let i = second; i < second + 1; i += 0.25) {
@@ -4716,6 +4978,8 @@ requestAnimationFrame(animate);
 
       let musicStartTime;
       let nextSecond = 0;
+      let extractionStartTime;
+      let nextExtractionBeat = 0;
       let leadCycle = -1;
       let leadNotes;
 
@@ -4745,13 +5009,27 @@ requestAnimationFrame(animate);
       function scheduleMusic() {
         if (isDead || escaped) return;
         const now = audioCtx.currentTime;
-        // When a backgrounded tab wakes late, skip expired notes instead of playing a backlog.
-        if (musicStartTime + nextSecond < now - 0.25) {
-          nextSecond = Math.ceil(now - musicStartTime);
-        }
-        while (musicStartTime + nextSecond <= now + 0.25) {
-          scheduleSecond(nextSecond);
-          nextSecond++;
+        if (escapeBeam) {
+          if (extractionStartTime === undefined) {
+            stopAudioSources(gameplayMusicSources);
+            extractionStartTime = now + 0.04;
+          }
+          if (extractionStartTime + nextExtractionBeat * extractionBeatDuration < now - 0.1) {
+            nextExtractionBeat = Math.ceil((now - extractionStartTime) / extractionBeatDuration);
+          }
+          while (extractionStartTime + nextExtractionBeat * extractionBeatDuration <= now + 0.25) {
+            const time = extractionStartTime + nextExtractionBeat * extractionBeatDuration;
+            scheduleExtractionBeat(time, nextExtractionBeat++);
+          }
+        } else {
+          // When a backgrounded tab wakes late, skip expired notes instead of playing a backlog.
+          if (musicStartTime + nextSecond < now - 0.25) {
+            nextSecond = Math.ceil(now - musicStartTime);
+          }
+          while (musicStartTime + nextSecond <= now + 0.25) {
+            scheduleSecond(nextSecond);
+            nextSecond++;
+          }
         }
         musicTimeout = setTimeout(scheduleMusic, 100);
       }
