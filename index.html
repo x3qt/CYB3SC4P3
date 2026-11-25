@@ -76,15 +76,26 @@
       font: 700 12px/1.4 monospace;
       display: none;
     }
-    #health.damaged {
-      animation: integrityHit .4s ease-out;
+    #health.damaged, #chargeMeter.damaged {
+      animation: resourceLoss .4s ease-out;
     }
-    @keyframes integrityHit {
+    @keyframes resourceLoss {
       0%, 25% {
         color: #ffd3d9;
         background: #591525;
         border-bottom-color: #ff536c;
         box-shadow: 0 0 12px #ff536c80;
+      }
+    }
+    #health.restored, #chargeMeter.restored {
+      animation: resourceGain .4s ease-out;
+    }
+    @keyframes resourceGain {
+      0%, 25% {
+        color: #d5ffe3;
+        background: #11412b;
+        border-bottom-color: #5dff9a;
+        box-shadow: 0 0 12px #5dff9a80;
       }
     }
     #arenaStatus {
@@ -218,7 +229,7 @@
       background: rgba(7, 9, 25, 0.88);
       color: #72ffe1;
     }
-    #chargeMeter.pulse {
+    #chargeMeter.pulse:not(.damaged, .restored) {
       animation: colorPulse 1.25s ease-in-out infinite;
     }
     @keyframes colorPulse {
@@ -521,6 +532,7 @@
       border-radius: 50%;
       touch-action: none;
     }
+    #fly-button.locked { opacity: 0.45; }
     #map-button {
       position: absolute;
       left: 20px;
@@ -576,7 +588,7 @@
       #openingBackdrop::before, #openingBackdrop::after,
       #openingBackdrop.extraction-outro, #extractionFlash,
       #intro[data-stage="studio"], #intro[data-stage="title"],
-      #scanOverlay::before, #scanTarget::after, #chargeMeter.pulse,
+      #scanOverlay::before, #scanTarget::after, #chargeMeter.pulse:not(.damaged, .restored),
       #extractionReport h1, #extractionReport p,
       .extraction-node, .extraction-link { animation: none; }
       #breachOverlay::before { animation: none; background: none; }
@@ -619,7 +631,7 @@
   </style>
 </head>
 <body>
-  <div id="info">WASD Move · Mouse Aim · Left click Fire · F Hack · M Scan</div>
+  <div id="info">WASD Move · Mouse Aim · Left click Fire · <span id="hackShortcut">F Hack (locked)</span> · M Scan</div>
   <a id="mapAttribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" hidden>© OpenStreetMap contributors</a>
   <div id="chargeMeter">DECRYPT BUFFER 0%</div>
   <div id="health">LINK INTEGRITY 100%</div>
@@ -657,7 +669,7 @@
     <div id="left-joystick" class="joystick"></div>
     <div id="right-joystick" class="joystick"></div>
     <div id="map-button" class="control-button">SCAN</div>
-    <div id="fly-button" class="control-button">HACK</div>
+    <div id="fly-button" class="control-button locked">HACK</div>
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha512-dLxUelApnYxpLt6K2iomGngnHO83iUvZytA3YjDUCjT0HDOHKXnVYdf3hU4JjM8uEhxf9nD1/ey98U3t2vZ0qQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script>
@@ -689,6 +701,7 @@
     const sunMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 5 });
     const sun = new THREE.Mesh(sunGeometry, sunMaterial);
     sun.position.set(0, 1000, 0);
+    sun.visible = false;
 
     const baseLat = 53.89;
     const baseLon = 27.55;
@@ -721,10 +734,17 @@
 
 
     const chargeMeter = document.getElementById("chargeMeter");
+    const resourceFlashTimeouts = new WeakMap();
     let charge = 0;
+    let displayedCharge = 0;
     function updateChargeMeter() {
-      const label = "DECRYPT BUFFER " + Math.floor(charge) + "%";
+      const percent = Math.floor(charge);
+      const label = "DECRYPT BUFFER " + percent + "%";
       if (chargeMeter.textContent !== label) chargeMeter.textContent = label;
+      if (percent !== displayedCharge) {
+        flashResourceMeter(chargeMeter, percent > displayedCharge ? 'restored' : 'damaged');
+        displayedCharge = percent;
+      }
       if (dataVault) {
         const armed = charge >= fullCharge;
         const { core, beacon } = dataVault.userData;
@@ -926,6 +946,19 @@ const arenaRoute = [
   { x: 0, z: 0 }, { x: 0, z: -1 }, { x: -1, z: -1 }, { x: -1, z: 0 }, { x: -1, z: 1 },
   { x: 0, z: 1 }, { x: 1, z: 1 }, { x: 1, z: 0 }, { x: 1, z: -1 }
 ];
+const sectorCues = [
+  "Nine encryption keys. One way out. Open Scan to find the first vault.",
+  "Watchdogs online. Break their trace around a corner.",
+  "Skimmer online. Stay out of the violet sweep or it will relay your position to Watchdogs.",
+  "Supervisor online. On lock, sprint out of the red ring.",
+  "Skimmer closing on the vault. Spend buffer on Hack and breach transports to top it back up.",
+  "Open Scan and follow the teal dashes through ICE. Ground traces carry across.",
+  "Vault approach under sweep. Crack it in a gap, then move in for the key.",
+  "Supervisor Heat rising. Keep moving between locks and use cover to break traces.",
+  "Last vault. Crack it, grab the key, then get ready to run."
+];
+const skimmerUnlockKeys = 2;
+const supervisorUnlockKeys = 3;
 const vaultRange = 100;
 const keyPickupRadius = 5;
 const vaultBeaconColor = 0xff914c;
@@ -958,6 +991,7 @@ let extractionSequence = null;
 let moonHeat = 0;
 let moonStrikeProgress = 0;
 let moonAttack = null;
+let firstMoonLock = true;
 let moonRing;
 let moonBlast;
 let messageTimeout;
@@ -970,15 +1004,15 @@ const interceptionHints = [
   "Roads gone quiet? Replacement transports enter when supply runs low.",
   "Open Scan for the active vault. Follow the teal dashes through open ICE.",
   "Full buffer. Move closer to the amber vault and fire. The crack spends the whole buffer and drops a key.",
-  "Pick up the encryption key to unlock the next sector and restore 15% Decrypt Buffer. Scan marks the pickup.",
-  "Every key opens a sector, raises Supervisor Heat, and lets Hack pierce one more building.",
-  "Hack starts at one building per shot. ICE and vaults stop fire. Hack drains 1% per second, or 2% on the move.",
+  "Pick up the encryption key to restore 15% Decrypt Buffer. The first eight keys each open a sector.",
+  "The first key unlocks Hack. Each later key lets your shots pierce one more building. ICE and vaults stop fire.",
+  "Hack drains 1% buffer per second, or 2% on the move. Breach transports to refill it.",
   "Hear the violet sweep ring? You’re inside the cone. Get out or get under cover.",
   "Exit the cone or break sight with the skimmer and its violet-marked relays. Taking out the relays drops the trace faster.",
-  "Break sight, then turn again. Enforcers check where they last saw you and the exits nearby.",
-  "Vault hits, firefights, and Hack draw enforcers. Opening a sector won’t shake their trace.",
-  "Hear the Supervisor’s lock alarm? Clear the red ring before the beam hits.",
-  "Nine keys light the extraction beam. Every enforcer and skimmer comes for you. Keep moving."
+  "Break sight, then turn again. Watchdogs check where they last saw you and the exits nearby.",
+  "Vault hits, firefights, and Hack draw nearby Watchdogs. Their trace carries across sectors.",
+  "The Supervisor comes online in Sector 4. On lock, sprint out of the red ring before the beam hits.",
+  "Nine keys light the extraction beam. Every Watchdog and skimmer comes for you. Keep moving."
 ];
 const openingBackdrop = document.getElementById('openingBackdrop');
 const introDiv = document.getElementById('intro');
@@ -1544,9 +1578,9 @@ function activateSection(section) {
 function spawnSectionTraffic(section) {
   transportSupplyTimer = transportSupplyInterval;
   spawnCars(section);
-  spawnPedestrians(section);
+  if (keysCollected > 0) spawnPedestrians(section);
   spawnNeonAdsByBuildings(section);
-  spawnAirplanes(section);
+  if (isPatrolSector()) spawnAirplanes(section);
   updateChargeMeter();
 }
 
@@ -1651,7 +1685,7 @@ function startGameplay() {
   chargeMeter.style.display = 'block';
   healthDisplay.style.display = 'block';
   updateReticleVisibility();
-  showMessage("Nine encryption keys. One way out. Open Scan to find the first vault.", objectiveMessageDuration);
+  showMessage(sectorCues[0], objectiveMessageDuration);
 }
 
     const noiseTexture = document.createElement('canvas');
@@ -1702,12 +1736,44 @@ function getSpawnRoads(section) {
 }
 
 function spawnCars(section) {
+  if (keysCollected === 0 && section.vaultSite && spawnOpeningTransports(section)) return;
   for (const { road, indices } of section.spawnRoads.slice(0, numCars)) {
     const distantIndices = indices.filter(index => road.points[index].distanceToSquared(camera.position) > 900);
     const candidates = distantIndices.length ? distantIndices : indices;
     const currentIndex = candidates[Math.floor(Math.random() * candidates.length)];
     spawnCarOnRoad(road, currentIndex);
   }
+}
+
+function spawnOpeningTransports({ box, spawnRoads, vaultSite }) {
+  const start = camera.position;
+  const dx = vaultSite.x - start.x;
+  const dz = vaultSite.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  if (lengthSquared === 0) return false;
+
+  const routeBands = [[], [], []];
+  for (const { road, indices } of spawnRoads) {
+    for (const index of indices) {
+      const point = road.points[index].clone().lerp(road.points[index + 1], 0.5);
+      if (!isPointInSection(point, box) || point.distanceToSquared(start) < 35 ** 2) continue;
+      const x = point.x - start.x;
+      const z = point.z - start.z;
+      const along = Math.max(0, Math.min(1, (x * dx + z * dz) / lengthSquared));
+      const distance = (x - dx * along) ** 2 + (z - dz * along) ** 2;
+      routeBands[Math.min(2, Math.floor(along * 3))].push({ road, index, point, distance });
+    }
+  }
+  for (const band of routeBands) {
+    band.sort((a, b) => a.distance - b.distance);
+    const target = Math.min(numCars, cars.length + Math.ceil(numCars / routeBands.length));
+    for (const { road, index, point } of band) {
+      if (cars.length >= target) break;
+      if (cars.some(car => car.position.distanceToSquared(point) < 18 ** 2) || !siteClear(point, 2.5)) continue;
+      spawnCarOnRoad(road, index, point);
+    }
+  }
+  return cars.length > 0;
 }
 
 function spawnCarOnRoad(road, currentIndex, startPos = road.points[currentIndex]) {
@@ -1779,10 +1845,24 @@ function updateTransportSupply(step) {
   }
 }
 
+function findIntroEnforcerSite(section) {
+  if (!section) return null;
+  const origin = camera.position;
+  return streetObjective(section.roads, section.box, origin, 4, point => {
+    const direction = new THREE.Vector3(point.x - origin.x, pedestrianElevation + 1 - origin.y, point.z - origin.z);
+    const distance = direction.length();
+    if (distance < 35 || distance > pedestrianAlertDistance) return false;
+    const hits = raycastBuildings(new THREE.Raycaster(origin, direction.divideScalar(distance), 0, distance));
+    return hits.length > 0 && !hits[0].object.userData.isWall && hits.every(hit => hit.object === hits[0].object);
+  });
+}
+
 function spawnPedestrians(section) {
   const { spawnRoads, box } = section;
   if (spawnRoads.length === 0) return;
-  const enforcerCount = 18 + keysCollected * 2;
+  const enforcerCount = Math.min(18 + keysCollected * 2, 4 + keysCollected * 4);
+  const entrySector = sections.get(sectionKey(arenaRoute[0].x, arenaRoute[0].z));
+  const introSite = keysCollected === 1 ? findIntroEnforcerSite(section) ?? findIntroEnforcerSite(entrySector) : null;
   let spawned = 0;
   for (let attempt = 0; attempt < enforcerCount * 4 && spawned < enforcerCount; attempt++) {
     const { road, indices } = spawnRoads[Math.floor(Math.random() * spawnRoads.length)];
@@ -1793,13 +1873,15 @@ function spawnPedestrians(section) {
     const side = Math.random() < 0.5 ? -1 : 1;
     const offset = new THREE.Vector3(-segment.z, 0, segment.x).multiplyScalar(side);
     const currentPos = start.clone().lerp(end, Math.random()).addScaledVector(offset, 5);
+    const intro = attempt === 0 && introSite;
+    if (intro) currentPos.copy(introSite);
     currentPos.y = pedestrianElevation;
     let steps = 0;
     while (!isSpawnClear(currentPos) && steps < 20) {
       currentPos.addScaledVector(offset, 2);
       steps++;
     }
-    if (!isPointInSection(currentPos, box) || !isSpawnClear(currentPos)) continue;
+    if ((!isPointInSection(currentPos, box) && !intro) || !isSpawnClear(currentPos)) continue;
 
     const bodyColors = [0x111133, 0x222244, 0x333355, 0x112233];
     const headColors = [0xffcc99, 0xffaa77, 0xffddaa];
@@ -1911,6 +1993,7 @@ function spawnPedestrians(section) {
       } else if (isPatrolSector()) {
         spawnSurveillancePatrol(patrolRoute(section));
       }
+      if (keysCollected < 4) return;
       for (let i = airplanes.length; i < numAirplanes; i++) {
         const airplane = new THREE.Mesh(airplaneGeometry, airplaneMaterial);
         airplane.position.set(
@@ -1930,7 +2013,7 @@ function spawnPedestrians(section) {
     }
 
 function isPatrolSector() {
-  return keysCollected === 1 || keysCollected >= 3;
+  return keysCollected >= skimmerUnlockKeys;
 }
 
 function patrolRoute(section, vault = section.vaultSite) {
@@ -1945,7 +2028,8 @@ function patrolRoute(section, vault = section.vaultSite) {
   ];
   if (vault) {
     // Tighten the patrol after each key while keeping the loop inside its sector.
-    const progress = Math.max(0, Math.min(1, (keysCollected - 1) / (arenaRoute.length - 2)));
+    const progress = Math.max(0, Math.min(1,
+      (keysCollected - skimmerUnlockKeys) / (arenaRoute.length - 1 - skimmerUnlockKeys)));
     const farthest = Math.max(...route.map(point => Math.hypot(point.x - vault.x, point.z - vault.z)));
     // Leave a turn beyond the sweep so players still get a window to approach.
     const maxPull = Math.max(0, 1 - (patrolScanRadius + 38) / farthest);
@@ -2977,8 +3061,8 @@ function updateArenaStatus() {
       "Breach data transports to fill the buffer";
   const keyCount = "KEYS " + keysCollected + "/" + arenaRoute.length;
   const label = keyCount + " · " + phase + (target && !escaped ? " · " + distance + " m" : "");
-  const heat = "SUPERVISOR HEAT " + Math.floor(moonHeat) + "%" +
-    (moonAttack?.phase === "track" ? " · TRACKING SIGNAL" : "");
+  const heat = keysCollected >= supervisorUnlockKeys ? "SUPERVISOR HEAT " + Math.floor(moonHeat) + "%" +
+    (moonAttack?.phase === "track" ? " · TRACKING SIGNAL" : "") : "";
   if (arenaObjective.textContent !== label) arenaObjective.textContent = label;
   const depth = hackPenetrationDepth();
   const hack = isFreeFly ? "HACK LIVE · " + depth + (depth === 1 ? " BUILDING" : " BUILDINGS") +
@@ -2999,15 +3083,18 @@ function updateArenaStatus() {
   }
   if (patrolStatus.textContent !== trace) patrolStatus.textContent = trace;
   const enforcement = isDead || escaped || huntingPedestrians === 0 ? "" :
-    escapeBeam ? "ENFORCER TRACE · GRIDWIDE" : sightedEnforcers > 0 ?
-    "ENFORCER TRACE · VISUAL ×" + sightedEnforcers :
+    escapeBeam ? "WATCHDOG TRACE · GRIDWIDE" : sightedEnforcers > 0 ?
+    "WATCHDOG TRACE · VISUAL ×" + sightedEnforcers :
     patrol?.tracing && patrol.hiddenTime === 0 && patrol.linkedEnforcers.size > 0 ?
-      "ENFORCER TRACE · SKIMMER RELAY" : "ENFORCER TRACE · CHECKING LAST CONTACT";
+      "WATCHDOG TRACE · SKIMMER RELAY" : "WATCHDOG TRACE · CHECKING LAST CONTACT";
   if (enforcerStatus.textContent !== enforcement) enforcerStatus.textContent = enforcement;
 }
 
 function raiseMoonAlert() {
-  moonHeat = Math.max(moonHeat, keysCollected * 8);
+  if (keysCollected >= supervisorUnlockKeys) {
+    sun.visible = true;
+    moonHeat = Math.max(moonHeat, keysCollected * 8);
+  }
   updateArenaStatus();
 }
 
@@ -3323,9 +3410,11 @@ function playVaultFracture() {
   );
 }
 
-function showKeyPickup(nextCue, duration) {
-  const progress = "KEY " + keysCollected + "/" + arenaRoute.length + " TAKEN";
-  showMessage(progress + " · Hack now pierces up to " + hackPenetrationDepth() + " buildings per shot. " + nextCue, duration);
+function showKeyPickup() {
+  const progress = keysCollected === 1 ? "HACK UNLOCKED · YOUR SHOTS NOW PIERCE ONE BUILDING" :
+    "KEY " + keysCollected + "/" + arenaRoute.length + " TAKEN · Hack now pierces up to " +
+    hackPenetrationDepth() + " buildings per shot.";
+  showMessage(progress + " · " + sectorCues[keysCollected], objectiveMessageDuration);
 }
 
 function beginEscape() {
@@ -3343,7 +3432,7 @@ function beginEscape() {
   moonStrikeProgress = 0.65;
   raiseMoonAlert();
   updateChargeMeter();
-  showKeyPickup("The grid has your signal. Run for the extraction beam.", objectiveMessageDuration);
+  showMessage("ALL NINE KEYS SECURED · GRIDWIDE TRACE · REACH THE EXTRACTION BEAM", objectiveMessageDuration);
 }
 
 function hitDataVault() {
@@ -3464,7 +3553,7 @@ function updateMoonBlast(elapsed) {
 }
 
 function updateMoon(step) {
-  if (keysCollected < 2) return;
+  if (keysCollected < supervisorUnlockKeys) return;
   const extracting = Boolean(escapeBeam);
   if (extracting) moonHeat = Math.min(100, moonHeat + 5 * step);
 
@@ -3487,7 +3576,8 @@ function updateMoon(step) {
     moonRing.material.color.setHex(0xffa167);
     const radius = extracting ? extractionStrikeRadius : moonStrikeRadius;
     moonRing.scale.setScalar(radius / moonStrikeRadius);
-    moonAttack = { phase: "track", time: 0.75 - moonHeat * 0.002, radius };
+    const trackTime = firstMoonLock && !extracting ? 1.25 : 0.75 - moonHeat * 0.002;
+    moonAttack = { phase: "track", time: trackTime, radius };
     return;
   }
 
@@ -3496,7 +3586,8 @@ function updateMoon(step) {
     moonRing.position.set(camera.position.x, 0.18, camera.position.z);
     if (moonAttack.time <= 0) {
       moonAttack.phase = "lock";
-      moonAttack.time = extracting ? 0.72 : 0.85;
+      moonAttack.time = extracting ? 0.72 : firstMoonLock ? 1.2 : 0.85;
+      firstMoonLock = false;
       moonRing.material.color.setHex(0xff2020);
       supervisorLockAlert.hidden = false;
       playMoonWarning(moonAttack.time);
@@ -3764,6 +3855,10 @@ async function expandMap(targetX, targetZ) {
   airplanes = tracingPatrol ? [tracingPatrol] : [];
 
   keysCollected++;
+  if (keysCollected === 1) {
+    flyButton.classList.remove('locked');
+    document.getElementById('hackShortcut').textContent = 'F Hack';
+  }
   activateSection(section);
   placeDataVault();
   if (![...sections.values()].some(loaded => isPointInSection(camera.position, loaded.box))) {
@@ -3774,11 +3869,7 @@ async function expandMap(targetX, targetZ) {
   updateReticleVisibility();
   gameOverDiv.style.display = 'none';
   raiseMoonAlert();
-  const nextCue = keysCollected === 1 ? "Watch for the violet sweep." :
-    keysCollected === 2 ? "Supervisor online. Hear the lock alarm? Get out of the red ring." :
-    keysCollected === 3 ? "Skimmers back on sweep. The Supervisor is still online." :
-    "Sector ICE cracked. Route open.";
-  showKeyPickup(nextCue);
+  showKeyPickup();
 }
 
     function playLaserSound(enforcer = false) {
@@ -3892,7 +3983,7 @@ async function expandMap(targetX, targetZ) {
   }
 
   function hackPenetrationDepth() {
-    return keysCollected + 1;
+    return keysCollected;
   }
 
   function findShotBlocker(ray, pierced = new Set()) {
@@ -4286,10 +4377,10 @@ function updateTraffic() {
       if (enforcer.userData.pursuit.seeing) sightedEnforcers++;
     }
     if (huntingPedestrians > 0 && !wasHunting) {
-      showMessage("Enforcers are tracing you. Break sight and turn off the street.");
+      showMessage("Watchdogs are tracing you. Break sight and turn off the street.");
       playEnforcerSignal(true);
     } else if (huntingPedestrians === 0 && wasHunting) {
-      showMessage("Enforcer trace dropped.");
+      showMessage("Watchdog trace dropped.");
       playEnforcerSignal(false);
     }
 }
@@ -4393,11 +4484,7 @@ function updateTraffic() {
         flyButton.addEventListener('touchstart', (e) => {
             e.preventDefault();
             if (!gameplayReady || isDead || isVictorious) return;
-            if (charge <= 0) {
-                showMessage("Hack offline. Breach a data transport to refill the buffer.");
-                return;
-            }
-            setHackActive(!isFreeFly);
+            toggleHack();
             startMusicOnInteraction();
         }, { passive: false });
       
@@ -4425,6 +4512,7 @@ function updateTraffic() {
     let hackMoving = false;
 
    function setHackActive(active) {
+       if (active && hackPenetrationDepth() === 0) return;
        isFreeFly = active;
        hackMoving = false;
        flyButton.classList.toggle('active', active);
@@ -4437,6 +4525,16 @@ function updateTraffic() {
        updateReticleVisibility();
    }
 
+   function toggleHack() {
+       if (hackPenetrationDepth() === 0) {
+           showMessage("Hack locked. Secure the first encryption key.");
+       } else if (!isFreeFly && charge <= 0) {
+           showMessage("Hack offline. Breach a data transport to refill the buffer.");
+       } else {
+           setHackActive(!isFreeFly);
+       }
+   }
+
    function updateReticleVisibility() {
        const visible = gameplayReady && !isDead && !isVictorious && !birdViewActive;
        document.getElementById('reticle').style.display = visible ? 'block' : 'none';
@@ -4447,11 +4545,7 @@ function updateTraffic() {
        if (!gameplayReady || isDead || isVictorious) return;
        keys[e.key.toLowerCase()] = true;
        if (e.key.toLowerCase() === 'f' && !e.repeat) {
-           if (charge <= 0) {
-               showMessage("Hack offline. Breach a data transport to refill the buffer.");
-               return;
-           }
-           setHackActive(!isFreeFly);
+           toggleHack();
        }
    });
 
@@ -5065,13 +5159,21 @@ requestAnimationFrame(animate);
     }
     document.addEventListener('click', startMusicOnInteraction);
 
+    function flashResourceMeter(meter, state) {
+        if (state === 'damaged' && meter.classList.contains('damaged')) return;
+        const restart = meter.classList.contains(state);
+        clearTimeout(resourceFlashTimeouts.get(meter));
+        meter.classList.remove('damaged');
+        meter.classList.remove('restored');
+        if (restart) void meter.offsetWidth;
+        meter.classList.add(state);
+        resourceFlashTimeouts.set(meter, setTimeout(() => meter.classList.remove(state), 400));
+    }
+
     function reducePlayerHealth(amount) {
         playerHealth = Math.max(0, playerHealth - amount);
         healthDisplay.innerText = 'LINK INTEGRITY ' + playerHealth + '%';
-        if (!healthDisplay.classList.contains('damaged')) {
-            healthDisplay.classList.add('damaged');
-            setTimeout(() => healthDisplay.classList.remove('damaged'), 400);
-        }
+        flashResourceMeter(healthDisplay, 'damaged');
         
         // Use the same hit indicator effect as when shot
         const hitIndicator = document.getElementById('hitIndicator');
@@ -5084,9 +5186,10 @@ requestAnimationFrame(animate);
     }
 
     function regenerateHealth(amount = 1) {
-        if (!isDead && playerHealth < 100) {
+        if (!isDead && playerHealth < 100 && amount > 0) {
             playerHealth = Math.min(100, playerHealth + amount);
             healthDisplay.innerText = 'LINK INTEGRITY ' + playerHealth + '%';
+            flashResourceMeter(healthDisplay, 'restored');
         }
     }
     const fontLoader = new THREE.FontLoader();
